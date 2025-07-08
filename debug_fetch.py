@@ -1,5 +1,3 @@
-# debug_fetch.py
-
 import sys
 from scraper import fetch_forum_listing, fetch_latest_post
 from config import CATEGORIES
@@ -19,7 +17,6 @@ def debug_category(cat, max_threads):
     print()
 
 def main():
-    # CLI-Argumente: Kategorie-Name (optional) und max_threads (optional)
     args = sys.argv[1:]
     category_name = None
     max_threads   = 5

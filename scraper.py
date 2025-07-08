@@ -1,5 +1,3 @@
-# scraper.py
-
 import re
 import requests
 from datetime import datetime
@@ -8,19 +6,11 @@ from bs4 import BeautifulSoup
 from config import CATEGORIES
 
 def fetch_forum_listing(forum_url):
-    """
-    Liefert für jedes Forum-Board eine Liste von Threads als
-      (thread_id, title, url, last_time)
-    sortiert nach last_time desc. Unterstützt WCF5 und WBB4,
-    überspringt Sticky-Threads, und fällt bei 0 Replies
-    auf die Thread-Erstellungszeit zurück.
-    """
     resp = requests.get(forum_url)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
     threads = []
 
-    # --- WCF5-Layout erkennen ---
     if soup.select_one("ul.structItemContainer"):
         for li in soup.select("ul.structItemContainer li.structItem--thread"):
             if "structItem--sticky" in li.get("class", []):
@@ -43,10 +33,8 @@ def fetch_forum_listing(forum_url):
 
             threads.append((tid, title, url, last_time))
 
-    # --- WBB4-Layout erkennen ---
     elif soup.select_one("li.columnSubject"):
         for subj in soup.select("li.columnSubject"):
-            # Sticky-Thread überspringen
             icon_li = subj.find_previous_sibling("li", class_="columnIcon")
             if icon_li and icon_li.select_one("span.wbbStickyIcon"):
                 continue
@@ -59,11 +47,9 @@ def fetch_forum_listing(forum_url):
             title = a.get_text(strip=True)
             tid   = int(a["data-thread-id"])
 
-            # Versuch 1: Zeit des letzten Posts
             last_li   = subj.find_next_sibling("li", class_="columnLastPost")
             time_el   = last_li.select_one("time.datetime") if last_li else None
 
-            # Fallback bei 0 Replies: Erstellungszeit im columnSubject
             if not time_el or not time_el.has_attr("datetime"):
                 time_el = subj.select_one("li.messageGroupTime time.datetime")
 
@@ -74,19 +60,12 @@ def fetch_forum_listing(forum_url):
             threads.append((tid, title, url, last_time))
 
     else:
-        # Unbekanntes Layout
         return []
 
-    # Sortiere: neueste Threads zuerst
     threads.sort(key=lambda x: x[3], reverse=True)
     return threads
 
 def fetch_latest_post(thread_url):
-    """
-    Holt den neuesten Post eines Threads (inkl. Paging), entfernt TOC
-    und gibt (post_id, text, [images], post_time) zurück.
-    """
-    # 1) Erste Seite → max_page finden
     resp = requests.get(thread_url); resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
     max_page = 1
@@ -95,23 +74,19 @@ def fetch_latest_post(thread_url):
         if m and (p := int(m.group(1))) > max_page:
             max_page = p
 
-    # 2) Letzte Seite laden
     last_url = thread_url.rstrip("/") + f"&pageNo={max_page}" if max_page>1 else thread_url
     resp = requests.get(last_url); resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
-    # 3) Letzten Post selektieren
     posts = soup.select("article.wbbPost")
     if not posts:
         return None, "", [], None
     last = posts[-1]
     post_id = int(last["data-post-id"])
 
-    # 4) post_time
     time_el = last.select_one("time.datetime")
     post_time = datetime.fromisoformat(time_el["datetime"]) if time_el else None
 
-    # 5) Text + TOC-Entfernung
     msg = last.select_one("div.messageText")
     if msg:
         for toc in msg.select(".scTocTitle, .scTocListLevel-1, .scTocListLevel-2"):
@@ -120,7 +95,6 @@ def fetch_latest_post(thread_url):
     else:
         text = ""
 
-    # 6) Bilder (max. 3)
     images = []
     if msg:
         for img in msg.select("img"):
@@ -141,12 +115,10 @@ def shorten(text, max_words=250, max_chars=1900):
     return text
 
 def send_to_discord(webhook_url, title, text, url, images):
-    # Bild posten
     if images:
         try: requests.post(webhook_url, json={"content": images[0]}).raise_for_status()
         except: pass
 
-    # Text posten
     excerpt = shorten(text)
     content = f"**{title}**\n\n{excerpt}\n\n↪️ {url}"
     if len(content) > 2000:
@@ -154,7 +126,6 @@ def send_to_discord(webhook_url, title, text, url, images):
     try: requests.post(webhook_url, json={"content": content}).raise_for_status()
     except: pass
 
-    # Trenner
     sep = "──────────────────────────────────────────────────"
     try: requests.post(webhook_url, json={"content": sep}).raise_for_status()
     except: pass

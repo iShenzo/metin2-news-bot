@@ -1,5 +1,3 @@
-# test_fetch.py
-
 import sys
 from scraper import fetch_forum_listing, fetch_latest_post, send_to_discord
 from config import CATEGORIES
@@ -32,10 +30,8 @@ def test_category(category_name, candidates=5, to_send=1):
         print("⚠️ Keine Posts gefunden.")
         return
 
-    # Sortiere nach echtem post_time, neueste zuerst
     pool.sort(key=lambda x: x["post_time"], reverse=True)
 
-    # Sende die obersten to_send Einträge
     for entry in pool[:to_send]:
         print(f"→ Sende Thread {entry['tid']} – {entry['title']} ({entry['post_time']})")
         send_to_discord(

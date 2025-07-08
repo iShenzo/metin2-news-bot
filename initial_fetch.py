@@ -1,5 +1,3 @@
-# initial_fetch.py
-
 from scraper import fetch_forum_listing, fetch_latest_post, send_to_discord
 from config import CATEGORIES
 
@@ -10,7 +8,6 @@ def initial():
             print(f"⚠️ Keine Threads in {cat['name']}")
             continue
 
-        # Thread mit dem jüngsten last_post_time ist threads[0]
         tid, title, url, _ = threads[0]
         pid, text, images, _ = fetch_latest_post(url)
         if pid:

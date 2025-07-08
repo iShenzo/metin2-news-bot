@@ -1,5 +1,3 @@
-# config.py
-
 CATEGORIES = [
     {
         "name": "News - Game",
