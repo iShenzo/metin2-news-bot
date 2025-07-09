@@ -13,8 +13,15 @@ CATEGORIES = [
         "name": "News - Itemshop",
         "forum_url": "https://board.de.metin2.gameforge.com/index.php?board/303-news-itemshop/",
         "webhook_url": "https://discord.com/api/webhooks/1387948526033702913/TgQKmMnluv0cFDdZZCV81E4XPHzchkRXBqkzh6_TJOFdSXN6n109-4CEjegqE0ZmRFN9"
-    }
+    },
+    {
+        "name": "Wartungsarbeiten",
+        "single_thread": True,
+        "thread_url": "https://board.de.metin2.gameforge.com/index.php?thread/56068-wartungsarbeiten/",
+        "webhook_url": "https://discord.com/api/webhooks/1392621312899420221/hGKxGGEkWJrOeXtNbDK4EteIx191l7HHlD5Zge8gY6CexzgTasOqMusMQAUVma8WhOH2"
+    },
 ]
 
+DB_PATH = "news.db"
 # Intervall für run_once (in Stunden)
 CHECK_INTERVAL_HOURS = 1
