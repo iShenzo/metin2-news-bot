@@ -4,7 +4,9 @@ from scraper import fetch_forum_listing, fetch_latest_post, send_to_discord
 from config import CATEGORIES
 
 def run():
-    today_utc = datetime.now(timezone.utc).date()
+    now_utc   = datetime.now(timezone.utc)
+    cutoff    = now_utc - timedelta(hours=1)
+    print(f"► Run once @ {now_utc.isoformat()} – teile nur Posts nach {cutoff.isoformat()} UTC")
 
     for cat in CATEGORIES:
         name      = cat["name"]
@@ -38,11 +40,11 @@ def run():
         post_date_utc = post_time.astimezone(timezone.utc).date()
         print(f"  → Letzter Post am {post_date_utc} (UTC)")
 
-        if post_date_utc == today_utc:
-            print(f"  → Poste an Discord: {title}")
+        if post_time and post_time > cutoff:
+            print(f"  → Neuer Post seit {cutoff.time()} UTC: {title}")
             send_to_discord(webhook, title, text, url, images)
         else:
-            print("  → Kein neuer Post heute.")
+            print("  → Kein neuer Post in der letzten Stunde.")
 
 if __name__ == "__main__":
     run()
