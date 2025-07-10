@@ -1,8 +1,9 @@
+# run_once.py
+import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 from scraper import fetch_forum_listing, fetch_latest_post, send_to_discord
 from config import CATEGORIES
-import sqlite3
 
 DB = "news.db"
 
@@ -10,9 +11,9 @@ def init_db():
     conn = sqlite3.connect(DB)
     conn.execute("""
       CREATE TABLE IF NOT EXISTS threads (
-        category     TEXT,
-        thread_id    INTEGER,
-        last_post_id INTEGER,
+        category     TEXT NOT NULL,
+        thread_id    INTEGER NOT NULL,
+        last_post_id INTEGER NOT NULL,
         PRIMARY KEY(category, thread_id)
       )
     """)
@@ -21,7 +22,7 @@ def init_db():
 def run():
     now_utc = datetime.now(timezone.utc)
     cutoff  = now_utc - timedelta(hours=1)
-    print(f"► Run once @ {now_utc.isoformat()} – Posts nach {cutoff.isoformat()} prüfen")
+    print(f"► Run once @ {now_utc.isoformat()} – prüfe neue Posts seit {cutoff.isoformat()}")
 
     conn = init_db()
     c    = conn.cursor()
@@ -30,35 +31,35 @@ def run():
         name    = cat["name"]
         webhook = cat["webhook_url"]
 
-        # 1) single_thread-Mode?
+        # ——— Einzel-Thread („Wartungsarbeiten“) ———
         if cat.get("single_thread"):
             url = cat["thread_url"]
-            # Thread-ID aus der URL extrahieren (hier 56068)
+            # Thread-ID aus URL („…/thread/56068-…/“ → 56068)
             tid = int(url.rstrip("/").split("/")[-1].split("-")[0])
 
-            # sicherstellen, dass wir einen Eintrag haben
+            # Initialisiere DB-Eintrag, falls noch nicht vorhanden
             c.execute(
                 "INSERT OR IGNORE INTO threads(category, thread_id, last_post_id) VALUES (?,?,0)",
                 (name, tid)
             )
             conn.commit()
 
-            # letzten Post holen
+            # Hol’ den letzten Post im Thread
             try:
                 post_id, text, images, post_time = fetch_latest_post(url)
             except Exception as e:
-                print(f"⚠️ Wartungsarbeiten fetch error: {e}")
+                print(f"⚠️ [{name}] fetch_latest_post error: {e}")
                 continue
 
-            # check gegen DB
+            # Lade, was wir zuletzt gesehen haben
             c.execute(
                 "SELECT last_post_id FROM threads WHERE category=? AND thread_id=?",
                 (name, tid)
             )
             last_seen = c.fetchone()[0]
 
-            if post_id and post_id > last_seen:
-                print(f"[{name}] Neuer Post #{post_id}, sende an Discord…")
+            if post_time and post_id > last_seen and post_time > cutoff:
+                print(f"[{name}] Neuer Post #{post_id} (Zeit {post_time.isoformat()}), sende an Discord…")
                 send_to_discord(webhook, name, text, url, images)
                 c.execute(
                     "UPDATE threads SET last_post_id=? WHERE category=? AND thread_id=?",
@@ -66,43 +67,64 @@ def run():
                 )
                 conn.commit()
             else:
-                print(f"[{name}] Kein neuer Post (letzter={last_seen}).")
+                print(f"[{name}] Kein neuer Post (letzter gesehen: #{last_seen}).")
 
-        # 2) normaler Forum-Mode
+        # ——— Normales Forum (Listing von Threads) ———
         else:
-            print(f"\n[{name}] Prüfe Forum-Listing…")
+            print(f"\n[{name}] prüfe Forum-Listing…")
             try:
                 threads = fetch_forum_listing(cat["forum_url"])
             except Exception as e:
-                print(f"⚠️ Listing-Fehler {cat['forum_url']}: {e}")
+                print(f"⚠️ [{name}] Listing-Fehler: {e}")
                 continue
 
             if not threads:
-                print("  → Keine Threads gefunden.")
+                print(f"[{name}] → keine Threads gefunden.")
                 continue
 
-            # nimm immer den aktuellsten Thread
-            tid, title, url, last_list_time = threads[0]
-            print(f"  → Neuster Thread: {title} ({last_list_time})")
+            # Wir nehmen nur den allerersten (jüngsten) Thread
+            tid, title, url, list_time = threads[0]
+            print(f"[{name}] Neuster Thread: “{title}” (ID {tid}, gelistet {list_time.isoformat()})")
 
+            # Initialisiere DB-Eintrag, falls neu
+            c.execute(
+                "INSERT OR IGNORE INTO threads(category, thread_id, last_post_id) VALUES (?,?,0)",
+                (name, tid)
+            )
+            conn.commit()
+
+            # was haben wir zuletzt gesehen?
+            c.execute(
+                "SELECT last_post_id FROM threads WHERE category=? AND thread_id=?",
+                (name, tid)
+            )
+            last_seen = c.fetchone()[0]
+
+            # Hol’ den letzten Post in diesem Thread
             try:
                 post_id, text, images, post_time = fetch_latest_post(url)
             except Exception as e:
-                print(f"⚠️ fetch_latest_post {url}: {e}")
+                print(f"⚠️ [{name}] fetch_latest_post {url}: {e}")
                 continue
 
             if not post_id or not post_time:
-                print("  → Kein Post im Thread.")
+                print(f"[{name}] → kein Post gefunden.")
                 continue
 
-            # nur Posts in der letzten Stunde
-            if post_time > cutoff:
-                print(f"  → Neuer Post seit {cutoff.time()}: {title}")
+            # Sende nur, wenn wirklich neuer und in der letzten Stunde
+            if post_time > cutoff and post_id > last_seen:
+                print(f"[{name}] Neuer Post #{post_id} (Zeit {post_time.isoformat()}), sende an Discord…")
                 send_to_discord(webhook, title, text, url, images)
+                c.execute(
+                    "UPDATE threads SET last_post_id=? WHERE category=? AND thread_id=?",
+                    (post_id, name, tid)
+                )
+                conn.commit()
             else:
-                print("  → Kein neuer Post in der letzten Stunde.")
+                print(f"[{name}] Kein neuer Post (letzter gesehen: #{last_seen}).")
 
     conn.close()
+    print("\n► run_once abgeschlossen.")
 
 if __name__ == "__main__":
     run()
