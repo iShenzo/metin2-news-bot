@@ -27,40 +27,52 @@ def run():
     conn = init_db()
     c    = conn.cursor()
 
-    for cat in CATEGORIES:
-        name    = cat["name"]
-        webhook = cat["webhook_url"]
+for cat in CATEGORIES:
+    name    = cat["name"]
+    webhook = cat["webhook_url"]
 
-        # ——— Einzel-Thread („Wartungsarbeiten“) ———
-        if cat.get("single_thread"):
-            url = cat["thread_url"]
-            # Thread-ID aus URL („…/thread/56068-…/“ → 56068)
-            tid = int(url.rstrip("/").split("/")[-1].split("-")[0])
+    if cat.get("single_thread"):
+        # —— Nur dieser eine Thread: Wartungsarbeiten —— #
+        url = cat["thread_url"]
+        tid = int(url.rstrip("/").split("/")[-1].split("-")[0])
 
-            # Initialisiere DB-Eintrag, falls noch nicht vorhanden
+        # In DB eintragen, falls neu
+        c.execute(
+            "INSERT OR IGNORE INTO threads(category, thread_id, last_post_id) VALUES (?,?,0)",
+            (name, tid)
+        )
+        conn.commit()
+
+        post_id, text, images, post_time = fetch_latest_post(url)
+        last_seen = c.execute(
+            "SELECT last_post_id FROM threads WHERE category=? AND thread_id=?",
+            (name, tid)
+        ).fetchone()[0]
+
+        if post_time > cutoff and post_id > last_seen:
+            send_to_discord(webhook, name, text, url, images)
+            c.execute(
+                "UPDATE threads SET last_post_id=? WHERE category=? AND thread_id=?",
+                (post_id, name, tid)
+            )
+            conn.commit()
+
+    else:
+        # —— Alle anderen Kategorien: iterate über _alle_ Threads —— #
+        threads = fetch_forum_listing(cat["forum_url"])
+        for tid, title, url, list_time in threads:
             c.execute(
                 "INSERT OR IGNORE INTO threads(category, thread_id, last_post_id) VALUES (?,?,0)",
                 (name, tid)
             )
-            conn.commit()
-
-            # Hol’ den letzten Post im Thread
-            try:
-                post_id, text, images, post_time = fetch_latest_post(url)
-            except Exception as e:
-                print(f"⚠️ [{name}] fetch_latest_post error: {e}")
-                continue
-
-            # Lade, was wir zuletzt gesehen haben
-            c.execute(
+            last_seen = c.execute(
                 "SELECT last_post_id FROM threads WHERE category=? AND thread_id=?",
                 (name, tid)
-            )
-            last_seen = c.fetchone()[0]
+            ).fetchone()[0]
 
-            if post_time and post_id > last_seen and post_time > cutoff:
-                print(f"[{name}] Neuer Post #{post_id} (Zeit {post_time.isoformat()}), sende an Discord…")
-                send_to_discord(webhook, name, text, url, images)
+            post_id, text, images, post_time = fetch_latest_post(url)
+            if post_time > cutoff and post_id > last_seen:
+                send_to_discord(webhook, title, text, url, images)
                 c.execute(
                     "UPDATE threads SET last_post_id=? WHERE category=? AND thread_id=?",
                     (post_id, name, tid)
